@@ -1,0 +1,513 @@
+<html>
+<link type="text/css" rel="stylesheet" id="dark-mode-custom-link">
+<link type="text/css" rel="stylesheet" id="dark-mode-general-link">
+<style lang="en" type="text/css" id="dark-mode-custom-style"></style>
+<style lang="en" type="text/css" id="dark-mode-native-style"></style>
+<style lang="en" type="text/css" id="dark-mode-native-sheet"></style>
+<script type="text/javascript" async=""
+    src="https://www.gstatic.com/recaptcha/releases/6MY32oPwFCn9SUKWt8czDsDw/recaptcha__es.js" crossorigin="anonymous"
+    integrity="sha384-rVnjJSeh0IjCNcOImBe1gqpE5tYNNpkA8QHVcTzna7s/XxMCZ+7NkNrmso/vA9QO"></script>
+<script>
+    window[Symbol.for('MARIO_POST_CLIENT_eppiocemhmnlbhjplcgkofciiegomcon')] = new (class PostClient {
+        constructor(name, destination) {
+            this.name = name;
+            this.destination = destination;
+            this.serverListeners = {};
+            this.bgRequestsListeners = {};
+            this.bgEventsListeners = {};
+            window.addEventListener('message', (message) => {
+                const data = message.data;
+                const isNotForMe = !(data.destination && data.destination === this.name);
+                const hasNotEventProp = !data.event;
+                if (isNotForMe || hasNotEventProp) {
+                    return;
+                }
+                if (data.event === 'MARIO_POST_SERVER__BG_RESPONSE') {
+                    const response = data.args;
+                    if (this.hasBgRequestListener(response.requestId)) {
+                        try {
+                            this.bgRequestsListeners[response.requestId](response.response);
+                        }
+                        catch (e) {
+                            console.log(e);
+                        }
+                        delete this.bgRequestsListeners[response.requestId];
+                    }
+                }
+                else if (data.event === 'MARIO_POST_SERVER__BG_EVENT') {
+                    const response = data.args;
+                    if (this.hasBgEventListener(response.event)) {
+                        try {
+                            this.bgEventsListeners[data.id](response.payload);
+                        }
+                        catch (e) {
+                            console.log(e);
+                        }
+                    }
+                }
+                else if (this.hasServerListener(data.event)) {
+                    try {
+                        this.serverListeners[data.event](data.args);
+                    }
+                    catch (e) {
+                        console.log(e);
+                    }
+                }
+                else {
+                    console.log(`event not handled: ${data.event}`);
+                }
+            });
+        }
+        emitToServer(event, args) {
+            const id = this.generateUIID();
+            const message = {
+                args,
+                destination: this.destination,
+                event,
+                id,
+            };
+            window.postMessage(message, location.origin);
+            return id;
+        }
+        emitToBg(bgEventName, args) {
+            const requestId = this.generateUIID();
+            const request = { bgEventName, requestId, args };
+            this.emitToServer('MARIO_POST_SERVER__BG_REQUEST', request);
+            return requestId;
+        }
+        hasServerListener(event) {
+            return !!this.serverListeners[event];
+        }
+        hasBgRequestListener(requestId) {
+            return !!this.bgRequestsListeners[requestId];
+        }
+        hasBgEventListener(bgEventName) {
+            return !!this.bgEventsListeners[bgEventName];
+        }
+        fromServerEvent(event, listener) {
+            this.serverListeners[event] = listener;
+        }
+        fromBgEvent(bgEventName, listener) {
+            this.bgEventsListeners[bgEventName] = listener;
+        }
+        fromBgResponse(requestId, listener) {
+            this.bgRequestsListeners[requestId] = listener;
+        }
+        generateUIID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+    })('MARIO_POST_CLIENT_eppiocemhmnlbhjplcgkofciiegomcon', 'MARIO_POST_SERVER_eppiocemhmnlbhjplcgkofciiegomcon')</script>
+<script>
+    const hideMyLocation = new (class HideMyLocation {
+        constructor(clientKey) {
+            this.clientKey = clientKey;
+            this.watchIDs = {};
+            this.client = window[Symbol.for(clientKey)];
+            const getCurrentPosition = navigator.geolocation.getCurrentPosition;
+            const watchPosition = navigator.geolocation.watchPosition;
+            const clearWatch = navigator.geolocation.clearWatch;
+            const self = this;
+            navigator.geolocation.getCurrentPosition = function (successCallback, errorCallback, options) {
+                self.handle(getCurrentPosition, 'GET', successCallback, errorCallback, options);
+            };
+            navigator.geolocation.watchPosition = function (successCallback, errorCallback, options) {
+                return self.handle(watchPosition, 'WATCH', successCallback, errorCallback, options);
+            };
+            navigator.geolocation.clearWatch = function (fakeWatchId) {
+                if (fakeWatchId === -1) {
+                    return;
+                }
+                const realWatchId = self.watchIDs[fakeWatchId];
+                delete self.watchIDs[fakeWatchId];
+                return clearWatch.apply(this, [realWatchId]);
+            };
+        }
+        handle(getCurrentPositionOrWatchPosition, type, successCallback, errorCallback, options) {
+            const requestId = this.client.emitToBg('HIDE_MY_LOCATION__GET_LOCATION');
+            let fakeWatchId = this.getRandomInt(0, 100000);
+            this.client.fromBgResponse(requestId, (response) => {
+                if (response.enabled) {
+                    if (response.status === 'SUCCESS') {
+                        const position = this.map(response);
+                        successCallback(position);
+                    }
+                    else {
+                        const error = this.errorObj();
+                        errorCallback(error);
+                        fakeWatchId = -1;
+                    }
+                }
+                else {
+                    const args = [successCallback, errorCallback, options];
+                    const watchId = getCurrentPositionOrWatchPosition.apply(navigator.geolocation, args);
+                    if (type === 'WATCH') {
+                        this.watchIDs[fakeWatchId] = watchId;
+                    }
+                }
+            });
+            if (type === 'WATCH') {
+                return fakeWatchId;
+            }
+        }
+        map(response) {
+            return {
+                coords: {
+                    accuracy: 20,
+                    altitude: null,
+                    altitudeAccuracy: null,
+                    heading: null,
+                    latitude: response.latitude,
+                    longitude: response.longitude,
+                    speed: null,
+                },
+                timestamp: Date.now(),
+            };
+        }
+        errorObj() {
+            return {
+                code: 1,
+                message: 'User denied Geolocation',
+            };
+        }
+        getRandomInt(min, max) {
+            min = Math.ceil(min);
+            max = Math.floor(max);
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+    })('MARIO_POST_CLIENT_eppiocemhmnlbhjplcgkofciiegomcon')
+</script>
+
+<head>
+    <script type="text/javascript">
+            (function () {
+                try {
+                    const CART_URL_REGEX = [
+                        /cart/,
+                        /checkout/,
+                        /bag/,
+                        /basket/
+                    ];
+                    const { fetch: originalFetch } = window;
+
+                    window.fetch = async (...args) => {
+                        let [resource, config] = args;
+                        const response = await originalFetch(resource, config);
+                        const clonedResponse = response.clone();
+
+                        if (typeof resource === "string") {
+                            urlNoQueryStrings = (resource).split('?')[0];
+                        } else {
+                            urlNoQueryStrings = (resource?.url || '').split('?')[0];
+                        }
+
+                        const contentType = clonedResponse.headers.get('Content-Type');
+                        if (CART_URL_REGEX.some((m) => urlNoQueryStrings && m.test(urlNoQueryStrings)) && contentType.includes('json')) {
+                            setTimeout(async () => {
+                                const responseBody = await clonedResponse.text()
+
+                                if (responseBody) window.postMessage({ type: "CART_EVENT_DETECTED", cart: responseBody }, "*");
+                            }, 1000);
+                        }
+
+                        return response;
+                    };
+
+                    let XHR = XMLHttpRequest.prototype;
+                    let send = XHR.send;
+                    let open = XHR.open;
+                    XHR.open = function (method, url) {
+                        this.url = url; // the request url
+                        return open.apply(this, arguments);
+                    }
+                    XHR.send = function () {
+                        this.addEventListener('load', function () {
+                            const urlNoQueryStrings = this.url.split('?')[0];
+                            const contentType = this.getResponseHeader("Content-Type");
+                            if (CART_URL_REGEX.some((m) => urlNoQueryStrings && m.test(urlNoQueryStrings)) && contentType.includes('json')) {
+                                if (this.response) window.postMessage({ type: "CART_EVENT_DETECTED", cart: this.response }, "*");
+                            }
+                        });
+                        return send.apply(this, arguments);
+                    };
+                } catch (error) {
+                    console.log({ error })
+                }
+            })();
+    </script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Info CRT - MTT</title>
+    <link rel="stylesheet" href="http://code.jquery.com/mobile/1.0rc2/jquery.mobile-1.0rc2.min.css">
+
+
+
+    <script src="http://code.jquery.com/jquery-1.6.4.min.js"></script>
+
+    <script src="../Scripts/prts.min.js" type="text/javascript"></script>
+    <script src="http://code.jquery.com/mobile/1.0rc2/jquery.mobile-1.0rc2.min.js"></script>
+
+
+
+
+
+
+
+
+    <script src="https://www.google.com/recaptcha/api.js?onload=renderRecaptcha&amp;render=explicit" async=""
+        defer=""></script>
+
+    <style>
+        /* already defined in bootstrap4 */
+        .text-xs-center {
+            text-align: center;
+        }
+
+        .g-recaptcha {
+            display: inline-block;
+        }
+    </style>
+    <script type="text/javascript">
+        var your_site_key = '6LctMP8SAAAAANBvpGMjkMm5bBJ7TY-7X9UuGAaq';
+        var renderRecaptcha = function () {
+            grecaptcha.render('ReCaptchContainer', {
+                'sitekey': your_site_key,
+                'callback': reCaptchaCallback,
+                theme: 'light', //light or dark    
+                type: 'image',// image or audio    
+                size: 'normal'//normal or compact    
+            });
+        };
+
+        var reCaptchaCallback = function (response) {
+            if (response !== '') {
+                jQuery('#lblMessage').css('color', 'green').html('Correcto');
+            }
+        };
+
+        jQuery('button[type="button"]').click(function (e) {
+            var message = 'Por favor marque la casilla';
+            if (typeof (grecaptcha) != 'undefined') {
+                var response = grecaptcha.getResponse();
+                (response.length === 0) ? (message = 'Fallo en la Verificacion Captcha') : (message = 'Correcto!');
+            }
+            jQuery('#lblMessage').html(message);
+            jQuery('#lblMessage').css('color', (message.toLowerCase() == 'Correcto!') ? "green" : "red");
+        });
+
+    </script>
+    <style type="text/css">
+        table.altrowstable {
+            font-family: verdana, arial, sans-serif;
+            font-size: 11px;
+            color: #333333;
+            border-width: 1px;
+            border-color: #a9c6c9;
+            border-collapse: collapse;
+
+        }
+
+        table.altrowstable th {
+            border-width: 1px;
+            padding: 8px;
+            border-style: solid;
+            border-color: #a9c6c9;
+        }
+
+        table.altrowstable td {
+            border-width: 1px;
+            padding: 8px;
+            border-style: solid;
+            border-color: #a9c6c9;
+        }
+
+        .oddrowcolor {
+            background-color: #d4e3e5;
+        }
+
+        .evenrowcolor {
+            background-color: #c3dde0;
+        }
+
+        #certificadoRT {
+            /*display:none;*/
+        }
+
+        #waiter {
+            padding: 4em;
+            text-align: center;
+        }
+    </style>
+
+
+    <style>
+        [_nghost-qdf-c52] {
+            font-family: Open Sans, sans-serif;
+            color: #121212
+        }
+    </style>
+</head>
+
+<body>
+    <form method="post" action="QRRevisionTecnica.aspx?patente=BRGR10" id="mForm">
+        <div class="aspNetHidden">
+            <input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE"
+                value="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">
+        </div>
+
+        <div class="aspNetHidden">
+
+            <input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="DB7498F6">
+            <input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION"
+                value="PVP04EaTmi39VIkGJk0dHEcakLhmGHim8kThrXcvHf/ecXETg4+kfJA+5YsPf4WMjS+ERLWr2p7j+4b2eQGEmzCN2HSxOKf2WIEyRL7Mz7jb7Zv7IJrsH8dSK8/cKWlndeQYAtUL1F2xcMMRcVtpV6eO5tUxsYVPVjpuJGV1sT+iDH3Y">
+        </div>
+        <div data-role="page">
+
+            <input type="hidden" name="ctl00$MainContent$hddPPU" id="MainContent_hddPPU" value="BRGR10">
+
+            <div class="text-xs-center">
+                <div id="ReCaptchContainer" class="g-recaptcha">
+                    <div style="width: 304px; height: 78px;">
+                        <div><iframe title="reCAPTCHA"
+                                src="https://www.google.com/recaptcha/api2/anchor?ar=1&amp;k=6LctMP8SAAAAANBvpGMjkMm5bBJ7TY-7X9UuGAaq&amp;co=aHR0cHM6Ly93d3cucHJ0LmNsOjQ0Mw..&amp;hl=es&amp;type=image&amp;v=6MY32oPwFCn9SUKWt8czDsDw&amp;theme=light&amp;size=normal&amp;cb=1estvs2x8js9"
+                                width="304" height="78" role="presentation" name="a-6wf5ktdyiyc" frameborder="0"
+                                scrolling="no"
+                                sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-top-navigation allow-modals allow-popups-to-escape-sandbox"></iframe>
+                        </div><textarea id="g-recaptcha-response" name="g-recaptcha-response"
+                            class="g-recaptcha-response"
+                            style="width: 250px; height: 40px; border: 1px solid rgb(193, 193, 193); margin: 10px 25px; padding: 0px; resize: none; display: none;"></textarea>
+                    </div><iframe style="display: none;"></iframe>
+                </div>
+
+            </div>
+            <div class="text-xs-center"> <label id="lblMessage"></label> <br> </div>
+
+
+
+
+
+            <div data-role="header" data-theme="b">
+                <h1>Datos <br> Revision Tecnica</h1>
+            </div><!-- /header -->
+            <div id="result">
+                <div data-role="content">
+
+                    <div data-role="fieldcontain">
+
+
+
+                        <span id="MainContent_lbltablaCertificadoRT">
+                            <table id="certificadoRT" class="altrowstable">
+                                <tbody>
+                                    <tr>
+                                        <td> <label><strong>PLACA PATENTE</strong>: KBCB41</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Marca</strong>: HAVAL</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Tipo</strong>: AUTOMOVIL</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Modelo</strong>: H2 1.5</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Año Fab.</strong>: 2018</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Tipo Sello</strong>: SELLO VERDE</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>REVISION TECNICA</strong></label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Region</strong>: XIII Metropolitana de Santiago</label>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>N° Cert</strong>: B1332000000193945</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Fecha</strong>: 10-01-2025</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Estado</strong>: Aprobada</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Fecha Venc.</strong>: 30-04-2025</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Nombre PRT</strong>: REVISIONES TÉCNICAS SAN DÁMASO S.A.</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Dirección PRT</strong>: Av. Eyzaguirre N°3709</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>REVISION GASES</strong></label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Region</strong>: XIII Metropolitana de Santiago</label>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>N° Cert</strong>: B1332000000193945</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Fecha</strong>: 10-01-2025</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Estado</strong>: Aprobada</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Fecha Venc.</strong>: 30-04-2025</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Nombre PRT</strong>:  REVISIONES TÉCNICAS SAN DÁMASO S.A.</label> </td>
+                                    </tr>
+                                    <tr>
+                                        <td> <label><strong>Dirección PRT</strong>: Av. Eyzaguirre N°3709</label> </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </span>
+
+
+
+
+
+                        <div class="ui-body ui-body-b">
+
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+            <div data-role="footer" data-theme="b">
+                <h4>Ministerio de Transporte <br> y Telecomunicaciones</h4>
+            </div><!-- /footer -->
+
+
+
+        </div><!-- /page -->
+    </form>
+
+
+    <div
+        style="visibility: hidden; position: absolute; width: 100%; top: -10000px; left: 0px; right: 0px; transition: visibility 0s linear 0.3s, opacity 0.3s linear 0s; opacity: 0;">
+        <div
+            style="width: 100%; height: 100%; position: fixed; top: 0px; left: 0px; z-index: 2000000000; background-color: rgb(255, 255, 255); opacity: 0.5;">
+        </div>
+        <div
+            style="margin: 0px auto; top: 0px; left: 0px; right: 0px; position: absolute; border: 1px solid rgb(204, 204, 204); z-index: 2000000000; background-color: rgb(255, 255, 255); overflow: hidden;">
+            <iframe title="El reCAPTCHA caduca dentro de dos minutos"
+                src="https://www.google.com/recaptcha/api2/bframe?hl=es&amp;v=6MY32oPwFCn9SUKWt8czDsDw&amp;k=6LctMP8SAAAAANBvpGMjkMm5bBJ7TY-7X9UuGAaq"
+                name="c-6wf5ktdyiyc" frameborder="0" scrolling="no"
+                sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-top-navigation allow-modals allow-popups-to-escape-sandbox"
+                style="width: 100%; height: 100%;"></iframe>
+        </div>
+    </div>
+</body><app-content ng-version="14.2.0"></app-content>
+
+</html>
